@@ -1,4 +1,4 @@
-const CACHE = "room-zero-shell-v4";
+const CACHE = "room-zero-shell-v5";
 const CORE = ["./", "./index.html", "./css/styles.css", "./js/app.js", "./js/config.js", "./manifest.webmanifest", "./assets/icons/icon.svg"];
 self.addEventListener("install", event => { event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(CORE))); self.skipWaiting(); });
 self.addEventListener("activate", event => { event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim())); });

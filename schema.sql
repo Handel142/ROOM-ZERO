@@ -154,8 +154,7 @@ drop policy if exists "members can read room answers" on public.room_answers;
 create policy "members can read room answers" on public.room_answers
   for select to authenticated using (public.is_room_member(room_answers.room_id));
 
--- Only the room host can launch a match. Brain Battle is the first complete
--- online game; other modes remain preview-only until their game rules exist.
+-- The host can launch any of the three synchronized game modes.
 create or replace function public.start_room(p_room_id uuid,p_game_mode text)
 returns jsonb
 language plpgsql security definer set search_path=public,auth
@@ -167,7 +166,7 @@ begin
   if not found then raise exception 'Room not found'; end if;
   if v_room.host_id <> auth.uid() then raise exception 'Only the room host can start the game'; end if;
   if v_room.status <> 'waiting' then raise exception 'This room has already started'; end if;
-  if p_game_mode <> 'brain' then raise exception 'Online multiplayer is currently available for Brain Battle only'; end if;
+  if p_game_mode not in ('brain','impostor','mystery') then raise exception 'Unknown game mode'; end if;
   -- The host is already a room member and counts as player 1.
   -- Capacity is only an upper limit; a room of size 4 can start with 2 players.
   select count(distinct user_id) into v_count
@@ -179,8 +178,10 @@ begin
   if v_count < 2 then
     raise exception 'Waiting for another player: the host counts as one, and at least one other player must join (currently % players)', v_count;
   end if;
+  delete from public.room_answers where room_id=p_room_id;
+  update public.room_members as rm set score=0 where rm.room_id=p_room_id;
   update public.rooms
-    set status='playing', game_mode='brain',
+    set status='playing', game_mode=p_game_mode,
         game_state=jsonb_build_object('question_index',0,'started_at',now(),'round',1)
     where id=p_room_id;
   return (select game_state from public.rooms where id=p_room_id);
@@ -188,10 +189,11 @@ end;
 $$;
 
 -- Correct answers are checked on the server; the browser cannot award itself points.
-create or replace function public.submit_room_answer(
+drop function if exists public.submit_room_answer(uuid,integer,integer);
+create function public.submit_room_answer(
   p_room_id uuid,p_question_index integer,p_answer_index integer
 )
-returns table(is_correct boolean,score integer)
+returns table(is_correct boolean,total_score integer)
 language plpgsql security definer set search_path=public,auth
 as $$
 declare v_room public.rooms%rowtype; v_correct integer; v_ok boolean; v_score integer;
@@ -200,26 +202,32 @@ begin
   if p_answer_index not between 0 and 3 then raise exception 'Invalid answer choice'; end if;
   select * into v_room from public.rooms where id=p_room_id for update;
   if not found or not public.is_room_member(p_room_id) then raise exception 'You are not a member of this room'; end if;
-  if v_room.status <> 'playing' or v_room.game_mode <> 'brain' then raise exception 'This game is not accepting answers'; end if;
+  if v_room.status <> 'playing' or v_room.game_mode not in ('brain','impostor','mystery') then raise exception 'This game is not accepting answers'; end if;
   if p_question_index <> coalesce((v_room.game_state->>'question_index')::integer,0) then
     raise exception 'That question has already changed; wait for the current question';
   end if;
-  -- Matches the seven Brain Battle questions in js/app.js.
-  v_correct := (array[2,1,1,3,2,1,2])[mod(p_question_index,7)+1];
+  -- Correct choices match the seven rounds for each mode in js/app.js.
+  if v_room.game_mode='brain' then
+    v_correct := (array[2,1,1,3,2,1,2])[mod(p_question_index,7)+1];
+  elsif v_room.game_mode='impostor' then
+    v_correct := (array[2,3,3,3,3,3,2])[mod(p_question_index,7)+1];
+  else
+    v_correct := (array[0,0,1,0,0,0,0])[mod(p_question_index,7)+1];
+  end if;
   v_ok := (p_answer_index=v_correct);
   insert into public.room_answers(room_id,user_id,question_index,answer_index,is_correct)
     values(p_room_id,auth.uid(),p_question_index,p_answer_index,v_ok)
     on conflict(room_id,user_id,question_index) do nothing;
   if not found then raise exception 'You have already answered this question'; end if;
   if v_ok then
-    update public.room_members set score=score+10,last_seen_at=now()
-      where room_id=p_room_id and user_id=auth.uid();
+    update public.room_members as rm set score=rm.score+10,last_seen_at=now()
+      where rm.room_id=p_room_id and rm.user_id=auth.uid();
   else
-    update public.room_members set last_seen_at=now()
-      where room_id=p_room_id and user_id=auth.uid();
+    update public.room_members as rm set last_seen_at=now()
+      where rm.room_id=p_room_id and rm.user_id=auth.uid();
   end if;
-  select m.score into v_score from public.room_members m
-    where m.room_id=p_room_id and m.user_id=auth.uid();
+  select rm.score into v_score from public.room_members as rm
+    where rm.room_id=p_room_id and rm.user_id=auth.uid();
   return query select v_ok,v_score;
 end;
 $$;
@@ -234,7 +242,7 @@ begin
   select * into v_room from public.rooms where id=p_room_id for update;
   if not found then raise exception 'Room not found'; end if;
   if v_room.host_id <> auth.uid() then raise exception 'Only the host can advance the question'; end if;
-  if v_room.status <> 'playing' or v_room.game_mode <> 'brain' then raise exception 'No active Brain Battle round'; end if;
+  if v_room.status <> 'playing' or v_room.game_mode not in ('brain','impostor','mystery') then raise exception 'No active game round'; end if;
   v_next := coalesce((v_room.game_state->>'question_index')::integer,0)+1;
   if v_next >= 7 then
     update public.rooms set status='finished',

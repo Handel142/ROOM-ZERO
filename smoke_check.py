@@ -51,12 +51,12 @@ assert "db.rpc('start_room'" in app, "Online host start must call the start_room
 assert "db.rpc('submit_room_answer'" in app, "Online answers must be recorded server-side"
 assert "db.rpc('advance_room_question'" in app, "Host must advance the shared question through RPC"
 assert "create or replace function public.start_room" in schema, "Missing host start RPC"
-assert "create or replace function public.submit_room_answer" in schema, "Missing server-side answer RPC"
+assert "create function public.submit_room_answer" in schema, "Missing server-side answer RPC"
 assert "create or replace function public.advance_room_question" in schema, "Missing shared question progression RPC"
 assert "game_state jsonb" in schema, "Shared game state is required"
 assert "public.room_answers" in schema, "Server-side answer storage is required"
 assert "Only the room host can start the game" in schema, "Host-only start authorization is required"
-assert "room-zero-shell-v4" in (ROOT / 'service-worker.js').read_text(encoding='utf-8'), "Service worker cache must be bumped"
+assert "room-zero-shell-v5" in (ROOT / 'service-worker.js').read_text(encoding='utf-8'), "Service worker cache must be bumped"
 print("PASS: online chat sync fallback, realtime subscriptions, host start, shared Brain Battle progression and cache version are present.")
 
 assert "p_answer_index: Number(index)" in app and "p_correct_index" not in app, "Answer RPC must match the server-checked function signature"
@@ -72,10 +72,15 @@ print("PASS: reconnects to active games restore answer state and block late join
 assert 'startButton.disabled = !isHost || room.members.length < 2' in app
 assert 'data-role=\"start-hint\"' in app
 assert 'Waiting for players: ${room.members.length} of ${room.capacity} joined' in app
-assert "const selectedGame = 'brain';" in app
-assert 'This mode is not playable yet. It cannot create a room' in app
-assert 'room-zero-shell-v4' in (ROOT / 'service-worker.js').read_text(encoding='utf-8')
-print('v4 lobby and preview regression checks passed')
+assert "const selectedGame = state.room.game || 'brain';" in app
+assert 'gameQuestions' in app and "value=\"impostor\"" in app and "value=\"mystery\"" in app
+assert 'PLAYABLE</span><h3>The Impostor' in (ROOT / 'index.html').read_text(encoding='utf-8')
+assert 'PLAYABLE</span><h3>The Mystery' in (ROOT / 'index.html').read_text(encoding='utf-8')
+assert 'drop function if exists public.submit_room_answer(uuid,integer,integer)' in schema
+assert 'returns table(is_correct boolean,total_score integer)' in schema
+assert "v_room.game_mode='impostor'" in schema and "array[0,0,1,0,0,0,0]" in schema
+assert 'room-zero-shell-v5' in (ROOT / 'service-worker.js').read_text(encoding='utf-8')
+print('v5 lobby, all-game selection, answer scoring and cache regression checks passed')
 assert 'count(distinct user_id)' in schema, 'Start RPC must count unique room members'
 assert 'the host counts as one' in schema, 'Start RPC must clearly count the host'
 print('v4 server-side player-count checks passed')

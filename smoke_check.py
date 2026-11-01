@@ -56,7 +56,7 @@ assert "create or replace function public.advance_room_question" in schema, "Mis
 assert "game_state jsonb" in schema, "Shared game state is required"
 assert "public.room_answers" in schema, "Server-side answer storage is required"
 assert "Only the room host can start the game" in schema, "Host-only start authorization is required"
-assert "room-zero-shell-v3" in (ROOT / 'service-worker.js').read_text(encoding='utf-8'), "Service worker cache must be bumped"
+assert "room-zero-shell-v4" in (ROOT / 'service-worker.js').read_text(encoding='utf-8'), "Service worker cache must be bumped"
 print("PASS: online chat sync fallback, realtime subscriptions, host start, shared Brain Battle progression and cache version are present.")
 
 assert "p_answer_index: Number(index)" in app and "p_correct_index" not in app, "Answer RPC must match the server-checked function signature"
@@ -67,3 +67,15 @@ assert "status in ('waiting','playing')" in schema, "Existing members must be ab
 assert "answeredQuestionIndex" in app, "A reconnected player must restore current-question answer state"
 assert "This game has already started; only players who were already in the room can reconnect" in schema, "Late joiners must not enter an active match"
 print("PASS: reconnects to active games restore answer state and block late joiners.")
+
+# v4 lobby regression checks
+assert 'startButton.disabled = !isHost || room.members.length < 2' in app
+assert 'data-role=\"start-hint\"' in app
+assert 'Waiting for players: ${room.members.length} of ${room.capacity} joined' in app
+assert "const selectedGame = 'brain';" in app
+assert 'This mode is not playable yet. It cannot create a room' in app
+assert 'room-zero-shell-v4' in (ROOT / 'service-worker.js').read_text(encoding='utf-8')
+print('v4 lobby and preview regression checks passed')
+assert 'count(distinct user_id)' in schema, 'Start RPC must count unique room members'
+assert 'the host counts as one' in schema, 'Start RPC must clearly count the host'
+print('v4 server-side player-count checks passed')

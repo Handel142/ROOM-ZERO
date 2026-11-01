@@ -70,6 +70,18 @@
     const count = $('#modalContent .split-line .muted');
     if (roster) roster.innerHTML = room.members.map(member => `<div class="player-row"><span>◉ ${escapeHTML(member.name)} ${member.host ? '<small>HOST</small>' : ''}</span><small>${member.score} pts</small></div>`).join('');
     if (count) count.textContent = `${room.members.length} / ${room.capacity}`;
+    // Keep the host controls in sync with the live roster, not just the player list.
+    // Previously the disabled attribute was rendered once and never recalculated.
+    const startButton = $('#modalContent [data-action="start-game"]');
+    const startHint = $('#modalContent [data-role="start-hint"]');
+    const isHost = state.online ? room.hostId === state.userId : !!room.members.find(m => m.host && m.name === playerName());
+    if (startButton) {
+      startButton.disabled = !isHost || room.members.length < 2;
+      startButton.textContent = room.members.length < 2 ? 'Waiting for another player' : 'Start Brain Battle';
+    }
+    if (startHint) {
+      startHint.textContent = !isHost ? 'The host can start once at least two players are in the room.' : room.members.length < 2 ? `Waiting for players: ${room.members.length} of ${room.capacity} joined. You can start as soon as one other player joins.` : `${room.members.length} players are in the room. The host can start Brain Battle now.`;
+    }
     if (chat) {
       const nearBottom = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 48;
       chat.innerHTML = room.messages.length ? room.messages.map(message => `<div class="chat-line"><b>${escapeHTML(message.name)}:</b> ${escapeHTML(message.text)}</div>`).join('') : '<span class="muted small">Start the conversation.</span>';
@@ -140,7 +152,7 @@
     showModal(`<p class="eyebrow">CREATE PRIVATE ARENA</p><h2 id="modalTitle">Set up your room</h2><p>Choose a display name, room size (minimum 2 players) and the first challenge.</p>
       <div class="field"><label for="hostName">YOUR DISPLAY NAME</label><input id="hostName" maxlength="18" autocomplete="nickname" placeholder="Choose a name" value="${escapeHTML(state.player)}"></div>
       <div class="field"><label for="capacity">ROOM CAPACITY</label><select id="capacity"><option value="2" selected>2 players (minimum)</option><option value="4">4 players</option><option value="8">8 players</option><option value="12">12 players</option><option value="20">20 players</option><option value="30">30 players</option></select></div>
-      <div class="field"><label for="firstGame">FIRST GAME</label><select id="firstGame"><option value="brain">Brain Battle</option><option value="impostor">The Impostor</option><option value="mystery">The Mystery</option></select></div>
+      <div class="field"><label for="firstGame">FIRST GAME</label><select id="firstGame" disabled><option value="brain" selected>Brain Battle · playable online</option></select><p class="muted small">Other game modes are clearly marked as previews until their multiplayer engines are ready.</p></div>
       <button class="btn btn-primary" data-action="create-submit">Create private room</button>`);
   }
   function joinUI(code = '') {
@@ -191,7 +203,7 @@
       <div class="divider"></div><b>Room chat</b><div class="chat-box" id="chatBox">${room.messages.length ? room.messages.map(message => `<div class="chat-line"><b>${escapeHTML(message.name)}:</b> ${escapeHTML(message.text)}</div>`).join('') : '<span class="muted small">Start the conversation.</span>'}</div>
       <div class="chat-compose"><input id="chatInput" maxlength="180" placeholder="Write a message…" aria-label="Chat message"><button data-action="send-chat">Send</button></div>
       <div class="reaction-row">${['😂','🔥','👏','😮','❤️','🤔'].map(emoji => `<button data-action="react" data-emoji="${emoji}" aria-label="React ${emoji}">${emoji}</button>`).join('')}</div>
-      ${room.status === 'waiting' ? (isHost ? `<div class="divider"></div><div class="field"><label for="lobbyGame">GAME MODE</label><select id="lobbyGame"><option value="brain" ${room.game === 'brain' ? 'selected' : ''}>Brain Battle · online</option><option value="impostor">The Impostor · preview</option><option value="mystery">The Mystery · preview</option></select></div><button class="btn btn-primary" data-action="start-game" ${room.members.length < 2 ? 'disabled' : ''}>Start game</button>${room.members.length < 2 ? '<p class="muted small">At least 2 players must join before the host can start.</p>' : ''}` : '<p class="muted small">The host will start the game when everyone is ready.</p>') : (room.status === 'playing' ? '<button class="btn btn-primary" data-action="resume-game">Return to current game</button>' : '<p class="muted small">This game has finished. Check the final scores.</p>')}
+      ${room.status === 'waiting' ? (isHost ? `<div class="divider"></div><div class="field"><label>GAME MODE</label><div class="result"><b>Brain Battle</b><p class="muted small">Online multiplayer · ${room.members.length} / ${room.capacity} players</p></div></div><button class="btn btn-primary" data-action="start-game" ${room.members.length < 2 ? 'disabled' : ''}>${room.members.length < 2 ? 'Waiting for another player' : 'Start Brain Battle'}</button><p class="muted small" data-role="start-hint">${room.members.length < 2 ? `Waiting for players: ${room.members.length} of ${room.capacity} joined. You can start as soon as one other player joins.` : `${room.members.length} players are in the room. You can start now.`}</p>` : '<p class="muted small">The host will start Brain Battle when at least one other player has joined.</p>') : (room.status === 'playing' ? '<button class="btn btn-primary" data-action="resume-game">Return to current game</button>' : '<p class="muted small">This game has finished. Check the final scores.</p>')}
       <button class="btn btn-secondary full-button" data-action="leave-room">Leave room</button>`);
   }
   function gameInfo(game) {
@@ -201,7 +213,8 @@
       mystery: ['The Mystery', 'Explore a fictional case, inspect evidence and work together to identify what happened.']
     }[game];
     if (!data) return;
-    showModal(`<p class="eyebrow">GAME INTELLIGENCE</p><h2 id="modalTitle">${data[0]}</h2><p>${data[1]}</p><div class="result"><b>Preview status</b><p>${game === 'brain' ? 'Brain Battle has a playable sample round.' : 'This mode is presented as a preview; its complete multiplayer rules are not active yet.'}</p></div><button class="btn btn-primary" data-action="create-room">Create a room</button>`);
+    const playable = game === 'brain';
+    showModal(`<p class="eyebrow">GAME INTELLIGENCE</p><h2 id="modalTitle">${data[0]}</h2><p>${data[1]}</p><div class="result"><b>${playable ? 'Ready to play' : 'Preview only'}</b><p>${playable ? 'Create a private room, invite at least one other player, then start a synchronized multiplayer match.' : 'This mode is not playable yet. It cannot create a room or change your current room code. It will be enabled only when its complete multiplayer rules are ready.'}</p></div>${playable ? '<button class="btn btn-primary" data-action="create-room">Create a Brain Battle room</button>' : '<button class="btn btn-secondary" data-action="close-modal">Back to arena</button>'}`);
   }
   function startBrain() { state.question = 0; state.score = 0; state.answered = false; renderQuestion(); }
   function renderQuestion() {
@@ -299,7 +312,9 @@
       case 'react': sendChat(element.dataset.emoji); break;
       case 'start-game': {
         if (!state.room) return;
-        const selectedGame = $('#lobbyGame')?.value || state.room.game;
+        const selectedGame = 'brain';
+        if (state.room.members.length < 2) { toast('At least two players must be in the room. The host counts as one player.'); break; }
+        if (state.online && state.room.hostId !== state.userId) { toast('Only the room host can start Brain Battle.'); break; }
         if (state.online) {
           if (selectedGame !== 'brain') { toast('Online multiplayer is currently playable in Brain Battle. The other modes are still previews.'); break; }
           (async () => {

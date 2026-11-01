@@ -160,7 +160,7 @@ create or replace function public.start_room(p_room_id uuid,p_game_mode text)
 returns jsonb
 language plpgsql security definer set search_path=public,auth
 as $$
-declare v_room public.rooms%rowtype; v_count integer;
+declare v_room public.rooms%rowtype; v_count integer; v_host_present boolean;
 begin
   if auth.uid() is null then raise exception 'Authentication required'; end if;
   select * into v_room from public.rooms where id=p_room_id for update;
@@ -168,8 +168,17 @@ begin
   if v_room.host_id <> auth.uid() then raise exception 'Only the room host can start the game'; end if;
   if v_room.status <> 'waiting' then raise exception 'This room has already started'; end if;
   if p_game_mode <> 'brain' then raise exception 'Online multiplayer is currently available for Brain Battle only'; end if;
-  select count(*) into v_count from public.room_members where room_id=p_room_id;
-  if v_count < 2 then raise exception 'At least two players must join before the host can start'; end if;
+  -- The host is already a room member and counts as player 1.
+  -- Capacity is only an upper limit; a room of size 4 can start with 2 players.
+  select count(distinct user_id) into v_count
+    from public.room_members where room_id=p_room_id;
+  select exists(select 1 from public.room_members
+    where room_id=p_room_id and user_id=v_room.host_id and is_host)
+    into v_host_present;
+  if not v_host_present then raise exception 'Room host membership is missing; recreate the room'; end if;
+  if v_count < 2 then
+    raise exception 'Waiting for another player: the host counts as one, and at least one other player must join (currently % players)', v_count;
+  end if;
   update public.rooms
     set status='playing', game_mode='brain',
         game_state=jsonb_build_object('question_index',0,'started_at',now(),'round',1)

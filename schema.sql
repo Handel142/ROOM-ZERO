@@ -81,10 +81,13 @@ begin
  if p_capacity not between 2 and 50 then raise exception 'Capacity must be between 2 and 50'; end if;
  if p_game_mode not in ('brain','impostor','mystery') then raise exception 'Invalid game mode'; end if;
  loop
-   -- md5(), random() and clock_timestamp() are built into PostgreSQL.
-   -- This avoids depending on pgcrypto.gen_random_bytes(), which may not
-   -- be visible in Supabase projects where extensions live in another schema.
-   v_code:=upper(substr(md5(random()::text || clock_timestamp()::text || pg_backend_pid()::text),1,6));
+   -- Generate from the same unambiguous alphabet accepted by the UI.
+   -- This avoids 0/O and 1/I transcription problems and keeps every code valid.
+   v_code:='';
+   for i in 1..6 loop
+     v_code:=v_code || substr('ABCDEFGHJKLMNPQRSTUVWXYZ23456789',
+       floor(random()*32)::integer + 1, 1);
+   end loop;
    exit when not exists(select 1 from public.rooms r where r.code=v_code);
    v_attempt:=v_attempt+1;
    if v_attempt>20 then raise exception 'Could not allocate room code; please try again'; end if;
@@ -98,15 +101,27 @@ create or replace function public.join_room(p_code text,p_display_name text)
 returns uuid
 language plpgsql security definer set search_path=public,auth
 as $$
-declare v_room public.rooms%rowtype;
+declare v_room public.rooms%rowtype; v_existing boolean;
 begin
  if auth.uid() is null then raise exception 'Authentication required'; end if;
  if length(trim(p_display_name)) not between 1 and 18 then raise exception 'Invalid display name'; end if;
- select * into v_room from public.rooms where code=upper(trim(p_code)) and status='waiting' and expires_at>now() for update;
- if not found then raise exception 'Room not found or no longer accepting players'; end if;
- if (select count(*) from public.room_members where room_id=v_room.id)>=v_room.capacity then raise exception 'Room is full'; end if;
- insert into public.room_members(room_id,user_id,display_name) values(v_room.id,auth.uid(),trim(p_display_name))
- on conflict(room_id,user_id) do update set display_name=excluded.display_name,last_seen_at=now();
+ select * into v_room from public.rooms
+   where code=upper(trim(p_code)) and status in ('waiting','playing') and expires_at>now()
+   for update;
+ if not found then raise exception 'Room not found, expired, or closed'; end if;
+ select exists(select 1 from public.room_members where room_id=v_room.id and user_id=auth.uid())
+   into v_existing;
+ if v_existing then
+   update public.room_members set display_name=trim(p_display_name),last_seen_at=now()
+     where room_id=v_room.id and user_id=auth.uid();
+   return v_room.id;
+ end if;
+ if v_room.status <> 'waiting' then raise exception 'This game has already started; only players who were already in the room can reconnect'; end if;
+ if (select count(*) from public.room_members where room_id=v_room.id)>=v_room.capacity then
+   raise exception 'Room is full';
+ end if;
+ insert into public.room_members(room_id,user_id,display_name)
+   values(v_room.id,auth.uid(),trim(p_display_name));
  return v_room.id;
 end; $$;
 
@@ -115,3 +130,135 @@ grant execute on function public.join_room(text,text) to authenticated;
 
 -- Enable Realtime for lobby roster and messages from Supabase Dashboard > Database > Publications
 -- Add: rooms, room_members, room_messages to supabase_realtime.
+
+
+-- Multiplayer gameplay and reliable cross-device room synchronization.
+alter table public.rooms
+  add column if not exists game_state jsonb not null default '{}'::jsonb;
+
+create table if not exists public.room_answers (
+  id uuid primary key default gen_random_uuid(),
+  room_id uuid not null references public.rooms(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  question_index integer not null check (question_index >= 0),
+  answer_index integer not null check (answer_index between 0 and 3),
+  is_correct boolean not null,
+  created_at timestamptz not null default now(),
+  unique(room_id,user_id,question_index)
+);
+create index if not exists room_answers_room_question_idx
+  on public.room_answers(room_id,question_index);
+
+alter table public.room_answers enable row level security;
+drop policy if exists "members can read room answers" on public.room_answers;
+create policy "members can read room answers" on public.room_answers
+  for select to authenticated using (public.is_room_member(room_answers.room_id));
+
+-- Only the room host can launch a match. Brain Battle is the first complete
+-- online game; other modes remain preview-only until their game rules exist.
+create or replace function public.start_room(p_room_id uuid,p_game_mode text)
+returns jsonb
+language plpgsql security definer set search_path=public,auth
+as $$
+declare v_room public.rooms%rowtype; v_count integer;
+begin
+  if auth.uid() is null then raise exception 'Authentication required'; end if;
+  select * into v_room from public.rooms where id=p_room_id for update;
+  if not found then raise exception 'Room not found'; end if;
+  if v_room.host_id <> auth.uid() then raise exception 'Only the room host can start the game'; end if;
+  if v_room.status <> 'waiting' then raise exception 'This room has already started'; end if;
+  if p_game_mode <> 'brain' then raise exception 'Online multiplayer is currently available for Brain Battle only'; end if;
+  select count(*) into v_count from public.room_members where room_id=p_room_id;
+  if v_count < 2 then raise exception 'At least two players must join before the host can start'; end if;
+  update public.rooms
+    set status='playing', game_mode='brain',
+        game_state=jsonb_build_object('question_index',0,'started_at',now(),'round',1)
+    where id=p_room_id;
+  return (select game_state from public.rooms where id=p_room_id);
+end;
+$$;
+
+-- Correct answers are checked on the server; the browser cannot award itself points.
+create or replace function public.submit_room_answer(
+  p_room_id uuid,p_question_index integer,p_answer_index integer
+)
+returns table(is_correct boolean,score integer)
+language plpgsql security definer set search_path=public,auth
+as $$
+declare v_room public.rooms%rowtype; v_correct integer; v_ok boolean; v_score integer;
+begin
+  if auth.uid() is null then raise exception 'Authentication required'; end if;
+  if p_answer_index not between 0 and 3 then raise exception 'Invalid answer choice'; end if;
+  select * into v_room from public.rooms where id=p_room_id for update;
+  if not found or not public.is_room_member(p_room_id) then raise exception 'You are not a member of this room'; end if;
+  if v_room.status <> 'playing' or v_room.game_mode <> 'brain' then raise exception 'This game is not accepting answers'; end if;
+  if p_question_index <> coalesce((v_room.game_state->>'question_index')::integer,0) then
+    raise exception 'That question has already changed; wait for the current question';
+  end if;
+  -- Matches the seven Brain Battle questions in js/app.js.
+  v_correct := (array[2,1,1,3,2,1,2])[mod(p_question_index,7)+1];
+  v_ok := (p_answer_index=v_correct);
+  insert into public.room_answers(room_id,user_id,question_index,answer_index,is_correct)
+    values(p_room_id,auth.uid(),p_question_index,p_answer_index,v_ok)
+    on conflict(room_id,user_id,question_index) do nothing;
+  if not found then raise exception 'You have already answered this question'; end if;
+  if v_ok then
+    update public.room_members set score=score+10,last_seen_at=now()
+      where room_id=p_room_id and user_id=auth.uid();
+  else
+    update public.room_members set last_seen_at=now()
+      where room_id=p_room_id and user_id=auth.uid();
+  end if;
+  select m.score into v_score from public.room_members m
+    where m.room_id=p_room_id and m.user_id=auth.uid();
+  return query select v_ok,v_score;
+end;
+$$;
+
+create or replace function public.advance_room_question(p_room_id uuid)
+returns jsonb
+language plpgsql security definer set search_path=public,auth
+as $$
+declare v_room public.rooms%rowtype; v_next integer;
+begin
+  if auth.uid() is null then raise exception 'Authentication required'; end if;
+  select * into v_room from public.rooms where id=p_room_id for update;
+  if not found then raise exception 'Room not found'; end if;
+  if v_room.host_id <> auth.uid() then raise exception 'Only the host can advance the question'; end if;
+  if v_room.status <> 'playing' or v_room.game_mode <> 'brain' then raise exception 'No active Brain Battle round'; end if;
+  v_next := coalesce((v_room.game_state->>'question_index')::integer,0)+1;
+  if v_next >= 7 then
+    update public.rooms set status='finished',
+      game_state=game_state || jsonb_build_object('finished_at',now())
+      where id=p_room_id;
+  else
+    update public.rooms set game_state=game_state || jsonb_build_object('question_index',v_next,'round',v_next+1)
+      where id=p_room_id;
+  end if;
+  return (select game_state from public.rooms where id=p_room_id);
+end;
+$$;
+
+revoke all on function public.start_room(uuid,text) from public;
+revoke all on function public.submit_room_answer(uuid,integer,integer) from public;
+revoke all on function public.advance_room_question(uuid) from public;
+grant execute on function public.start_room(uuid,text) to authenticated;
+grant execute on function public.submit_room_answer(uuid,integer,integer) to authenticated;
+grant execute on function public.advance_room_question(uuid) to authenticated;
+
+-- Add the tables to Supabase Realtime when the publication is available.
+-- The client also polls every 2.2 seconds as a fallback if Realtime is disabled.
+do $$
+begin
+  if exists (select 1 from pg_publication where pubname='supabase_realtime') then
+    if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='rooms') then
+      alter publication supabase_realtime add table public.rooms;
+    end if;
+    if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='room_members') then
+      alter publication supabase_realtime add table public.room_members;
+    end if;
+    if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='room_messages') then
+      alter publication supabase_realtime add table public.room_messages;
+    end if;
+  end if;
+end $$;

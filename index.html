@@ -7,8 +7,8 @@
   <meta name="description" content="ROOM ZERO — Enter the unknown. Challenge the mind.">
   <title>ROOM ZERO — Enter the Unknown</title>
   <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="icon" href="./icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="./styles.css">
+  <link rel="icon" href="./assets/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./css/styles.css">
 </head>
 <body>
   <div class="ambient ambient-a"></div><div class="ambient ambient-b"></div>
@@ -49,8 +49,8 @@
     </section>
     <section class="game-grid" id="gameGrid">
       <article class="game-card featured"><div class="game-icon icon-brain">✧</div><span class="game-tag">AVAILABLE</span><h3>Brain Battle</h3><p>Test logic, memory, mathematics and general knowledge.</p><button data-action="game-info" data-game="brain">Explore game <b>→</b></button></article>
-      <article class="game-card"><div class="game-icon icon-impostor">◉</div><span class="game-tag">AVAILABLE</span><h3>The Impostor</h3><p>Read the room, share clues and uncover who doesn't belong.</p><button data-action="game-info" data-game="impostor">Explore game <b>→</b></button></article>
-      <article class="game-card"><div class="game-icon icon-mystery">⌕</div><span class="game-tag">AVAILABLE</span><h3>The Mystery</h3><p>Connect evidence, compare theories and solve a case together.</p><button data-action="game-info" data-game="mystery">Explore game <b>→</b></button></article>
+      <article class="game-card"><div class="game-icon icon-impostor">◉</div><span class="game-tag soon">PREVIEW</span><h3>The Impostor</h3><p>Read the room, share clues and uncover who doesn't belong.</p><button data-action="game-info" data-game="impostor">Explore game <b>→</b></button></article>
+      <article class="game-card"><div class="game-icon icon-mystery">⌕</div><span class="game-tag soon">PREVIEW</span><h3>The Mystery</h3><p>Connect evidence, compare theories and solve a case together.</p><button data-action="game-info" data-game="mystery">Explore game <b>→</b></button></article>
       <article class="game-card locked"><div class="game-icon">⟡</div><span class="game-tag soon">COMING LATER</span><h3>Mind Connection</h3><p>Think independently. Discover how closely your minds align.</p><button data-action="game-preview" data-game="connection">Explore game <b>→</b></button></article>
       <article class="game-card locked"><div class="game-icon">◷</div><span class="game-tag soon">COMING LATER</span><h3>The 60-Second Test</h3><p>Quick-fire observation, patterns and memory challenges.</p><button data-action="game-preview" data-game="speed">Explore game <b>→</b></button></article>
       <article class="game-card locked"><div class="game-icon">⬡</div><span class="game-tag soon">COMING LATER</span><h3>The Master Plan</h3><p>Make strategic decisions and guide your team to victory.</p><button data-action="game-preview" data-game="strategy">Explore game <b>→</b></button></article>
@@ -66,7 +66,7 @@
   </div>
   <div class="toast-region" id="toastRegion" aria-live="polite"></div>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
-  <script src="./config.js" defer></script>
-  <script src="./app.js" defer></script>
+  <script src="./js/config.js" defer></script>
+  <script src="./js/app.js" defer></script>
 </body>
 </html>

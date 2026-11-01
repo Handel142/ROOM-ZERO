@@ -22,6 +22,31 @@
   const roomStore = () => { try { return JSON.parse(localStorage.getItem('rz_rooms') || '{}'); } catch { return {}; } };
   const saveRooms = rooms => localStorage.setItem('rz_rooms', JSON.stringify(rooms));
   const playerName = () => state.player || 'Guest';
+  const config = window.ROOM_ZERO_CONFIG || {};
+  let supabase = null;
+  const onlineEnabled = () => config.mode === 'supabase' && !!config.supabaseUrl && !!config.supabaseAnonKey && !!window.supabase;
+  async function getOnlineClient() {
+    if (!onlineEnabled()) throw new Error('Online rooms are not configured yet. Add your Supabase URL and anon key in js/config.js, then deploy again.');
+    if (!supabase) {
+      supabase = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey);
+      const { data, error } = await supabase.auth.getSession();
+      if (error) throw error;
+      if (!data.session) { const result = await supabase.auth.signInAnonymously(); if (result.error) throw result.error; }
+    }
+    return supabase;
+  }
+  async function fetchOnlineRoom(code) {
+    const db = await getOnlineClient();
+    const { data: roomRow, error } = await db.from('rooms').select('*').eq('code', code).single();
+    if (error) throw new Error('Room not found. Check the code and make sure the host has created it online.');
+    const [{ data: members, error: memberError }, { data: messages, error: messageError }] = await Promise.all([
+      db.from('room_members').select('*').eq('room_id', roomRow.id).order('joined_at'),
+      db.from('room_messages').select('*').eq('room_id', roomRow.id).order('created_at').limit(40)
+    ]);
+    if (memberError) throw memberError; if (messageError) throw messageError;
+    return { id: roomRow.id, code: roomRow.code, host: members.find(m => m.is_host)?.display_name || 'Host', capacity: roomRow.capacity, game: roomRow.game_mode, created: Date.parse(roomRow.created_at), status: roomRow.status, members: members.map(m => ({ id: m.user_id, name: m.display_name, host: m.is_host, score: m.score })), messages: messages.map(m => ({ name: m.display_name, text: m.body })) };
+  }
+
   const setPlayer = name => { state.player = name.trim().slice(0, 18) || 'Guest'; localStorage.setItem('rz_player', state.player); updateAvatar(); };
   const updateAvatar = () => { const button = $('#profileButton'); if (button) button.textContent = playerName().slice(0,1).toUpperCase(); };
   function toast(message, kind = '') {
@@ -55,23 +80,40 @@
       <div class="field"><label for="joinCode">ROOM CODE</label><input id="joinCode" maxlength="6" autocapitalize="characters" placeholder="ABC234" value="${escapeHTML(code)}" class="code-input"></div>
       <button class="btn btn-primary" data-action="join-submit">Join room</button>`);
   }
-  function createRoom(name, capacity, game) {
-    const code = makeCode();
-    const room = { code, host: name, capacity: Number(capacity), game, created: Date.now(), members: [{ id: 'host', name, host: true, score: 0 }], messages: [], status: 'waiting' };
-    const rooms = roomStore(); rooms[code] = room; saveRooms(rooms); state.room = room; renderLobby(); toast('Your private room is ready.');
+  async function createRoom(name, capacity, game) {
+    try {
+      if (config.mode === 'supabase') {
+        const db = await getOnlineClient();
+        const { data, error } = await db.rpc('create_room', { p_display_name: name, p_capacity: Number(capacity), p_game_mode: game });
+        if (error) throw error;
+        const code = Array.isArray(data) ? data[0].room_code : data.room_code;
+        state.room = await fetchOnlineRoom(code); state.online = true; renderLobby(); toast('Your online room is ready.'); return;
+      }
+      const code = makeCode();
+      const room = { code, host: name, capacity: Number(capacity), game, created: Date.now(), members: [{ id: 'host', name, host: true, score: 0 }], messages: [], status: 'waiting' };
+      const rooms = roomStore(); rooms[code] = room; saveRooms(rooms); state.room = room; state.online = false; renderLobby(); toast('Your local preview room is ready.');
+    } catch (error) { console.error(error); toast(error.message || 'Could not create room. Check your Supabase setup.', 'error'); }
   }
-  function joinRoom(name, code) {
-    const rooms = roomStore(), room = rooms[code];
-    if (!room) { toast('Room not found in this browser. Local preview rooms do not sync between devices.'); return; }
-    if (room.status !== 'waiting') { toast('This room has already started.'); return; }
-    if (room.members.some(member => member.name.toLowerCase() === name.toLowerCase())) { toast('That name is already being used in this room.'); return; }
-    if (room.members.length >= room.capacity) { toast('This room is full.'); return; }
-    room.members.push({ id: `guest-${Date.now()}`, name, host: false, score: 0 }); rooms[code] = room; saveRooms(rooms); state.room = room; renderLobby(); toast('You joined the room.');
+  async function joinRoom(name, code) {
+    try {
+      if (config.mode === 'supabase') {
+        const db = await getOnlineClient();
+        const { error } = await db.rpc('join_room', { p_code: code, p_display_name: name });
+        if (error) throw error;
+        state.room = await fetchOnlineRoom(code); state.online = true; renderLobby(); toast('You joined the online room.'); return;
+      }
+      const rooms = roomStore(), room = rooms[code];
+      if (!room) { toast('Room not found in this browser. This project is in local preview mode; configure Supabase for cross-device rooms.'); return; }
+      if (room.status !== 'waiting') { toast('This room has already started.'); return; }
+      if (room.members.some(member => member.name.toLowerCase() === name.toLowerCase())) { toast('That name is already being used in this room.'); return; }
+      if (room.members.length >= room.capacity) { toast('This room is full.'); return; }
+      room.members.push({ id: `guest-${Date.now()}`, name, host: false, score: 0 }); rooms[code] = room; saveRooms(rooms); state.room = room; state.online = false; renderLobby(); toast('You joined the room.');
+    } catch (error) { console.error(error); toast(error.message || 'Could not join room.', 'error'); }
   }
   function renderLobby() {
     const room = state.room; if (!room) return;
     const isHost = room.members[0] && room.members[0].name === playerName();
-    showModal(`<p class="eyebrow">PRIVATE ROOM · ${room.status.toUpperCase()}</p><h2 id="modalTitle">Waiting lobby</h2><p>Share the invitation with your group. In this preview, rooms are saved only in this browser.</p>
+    showModal(`<p class="eyebrow">PRIVATE ROOM · ${room.status.toUpperCase()}</p><h2 id="modalTitle">Waiting lobby</h2><p>Share the invitation with your group. ${state.online ? 'This room is stored online and can be joined from other devices.' : 'Local preview: rooms are saved only in this browser.'}</p>
       <div class="room-code" aria-label="Room code">${room.code}</div>
       <div class="hero-actions room-actions"><button class="btn btn-secondary" data-action="copy-code">Copy code</button><button class="btn btn-secondary" data-action="share-link">Share invitation</button></div>
       <div class="divider"></div><div class="split-line"><b>Players</b><span class="muted small">${room.members.length} / ${room.capacity}</span></div>
@@ -107,11 +149,19 @@
     const impostor = game === 'impostor';
     showModal(`<p class="eyebrow">${impostor ? 'THE IMPOSTOR' : 'THE MYSTERY'}</p><h2 id="modalTitle">${impostor ? 'The secret is not revealed yet' : 'The missing archive'}</h2><p>${impostor ? 'This screen explains the intended game. Secure private role assignment and voting will be added with the online game engine.' : 'A fictional archive has gone missing from a locked study. The full evidence board and group decision system are part of the next development stage.'}</p><div class="result"><b>Game preview</b><p>${impostor ? 'Most players will receive one shared word. One player will be the impostor. Everyone gives clues before voting.' : 'Players will inspect witness statements, compare the timeline and agree on a solution.'}</p></div><button class="btn btn-primary" data-action="back-lobby">Back to lobby</button>`);
   }
-  function sendChat(message) {
+  async function sendChat(message) {
     if (!state.room || !message.trim()) return;
-    const rooms = roomStore(), room = rooms[state.room.code]; if (!room) return;
-    room.messages = room.messages || []; room.messages.push({ name: playerName(), text: message.trim().slice(0, 180) }); room.messages = room.messages.slice(-40);
-    rooms[room.code] = room; saveRooms(rooms); state.room = room; renderLobby();
+    try {
+      if (state.online) {
+        const db = await getOnlineClient(); const { data: session } = await db.auth.getSession();
+        const member = state.room.members.find(m => m.name === playerName());
+        const { error } = await db.from('room_messages').insert({ room_id: state.room.id, user_id: session.session.user.id, display_name: playerName(), body: message.trim().slice(0, 180) });
+        if (error) throw error; state.room = await fetchOnlineRoom(state.room.code); renderLobby(); return;
+      }
+      const rooms = roomStore(), room = rooms[state.room.code]; if (!room) return;
+      room.messages = room.messages || []; room.messages.push({ name: playerName(), text: message.trim().slice(0, 180) }); room.messages = room.messages.slice(-40);
+      rooms[room.code] = room; saveRooms(rooms); state.room = room; renderLobby();
+    } catch (error) { console.error(error); toast(error.message || 'Message could not be sent.', 'error'); }
   }
   async function copyText(text) {
     try { if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(text); else { const field = document.createElement('textarea'); field.value = text; field.style.position = 'fixed'; field.style.opacity = '0'; document.body.append(field); field.select(); const ok = document.execCommand('copy'); field.remove(); if (!ok) throw new Error('Copy unavailable'); } toast('Copied to clipboard.'); }
@@ -141,7 +191,7 @@
       case 'send-chat': sendChat($('#chatInput').value); break;
       case 'react': sendChat(element.dataset.emoji); break;
       case 'start-game': {
-        if (!state.room) return; const rooms = roomStore(), room = rooms[state.room.code]; if (!room) { toast('Room could not be found.'); return; }
+        if (!state.room) return; if (state.online) { toast('Online game start needs the host-control RPC; the online lobby and chat are enabled.'); return; } const rooms = roomStore(), room = rooms[state.room.code]; if (!room) { toast('Room could not be found.'); return; }
         room.game = $('#lobbyGame').value; room.status = 'playing'; rooms[room.code] = room; saveRooms(rooms); state.room = room;
         if (room.game === 'brain') startBrain(); else startOtherGame(room.game); break;
       }
@@ -176,7 +226,7 @@
   }
   function init() {
     applyTheme(state.theme); updateAvatar(); $('#year').textContent = new Date().getFullYear(); bindEvents();
-    const connection = $('#connectionState'); connection.innerHTML = '<i></i><span>Local preview</span>'; connection.title = 'Local preview — online multiplayer is not connected';
+    const connection = $('#connectionState'); connection.innerHTML = '<i></i><span>' + (config.mode === 'supabase' ? 'Online mode' : 'Local preview') + '</span>'; connection.title = config.mode === 'supabase' ? 'Supabase online rooms configured' : 'Local preview — configure Supabase for cross-device rooms';
     const invite = new URLSearchParams(location.search).get('room'); if (invite) window.setTimeout(() => joinUI(invite.toUpperCase()), 250);
     if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('./service-worker.js').catch(error => console.warn('Service worker registration skipped:', error));
   }

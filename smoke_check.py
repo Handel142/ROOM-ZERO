@@ -24,7 +24,7 @@ class PageParser(HTMLParser):
 page = PageParser()
 page.feed((ROOT / 'index.html').read_text(encoding='utf-8'))
 for asset in page.assets:
-    assert asset and (ROOT / asset.split('?')[0]).is_file(), f'Missing linked asset: {asset}'
+    assert asset and (asset.startswith(('https://', 'http://')) or (ROOT / asset.split('?')[0]).is_file()), f'Missing linked asset: {asset}'
 app = (ROOT / 'js/app.js').read_text(encoding='utf-8')
 for action in sorted(page.actions):
     assert re.search(r"case\s+['\"]" + re.escape(action) + r"['\"]", app), f'No handler for page action: {action}'

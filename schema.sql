@@ -74,14 +74,17 @@ create or replace function public.create_room(p_display_name text,p_capacity int
 returns table(room_id uuid, room_code text)
 language plpgsql security definer set search_path=public,auth
 as $$
-declare v_id uuid; v_code text; v_attempt integer:=0;
+declare v_id uuid; v_code text; v_attempt integer:=0; i integer;
 begin
  if auth.uid() is null then raise exception 'Authentication required'; end if;
  if length(trim(p_display_name)) not between 1 and 18 then raise exception 'Invalid display name'; end if;
  if p_capacity not between 2 and 50 then raise exception 'Capacity must be between 2 and 50'; end if;
  if p_game_mode not in ('brain','impostor','mystery') then raise exception 'Invalid game mode'; end if;
  loop
-   v_code:=upper(substr(encode(gen_random_bytes(8),'hex'),1,6));
+   v_code:='';
+   for i in 1..6 loop
+     v_code:=v_code||substr('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', (get_byte(gen_random_bytes(1),0) % 32)+1, 1);
+   end loop;
    exit when not exists(select 1 from public.rooms r where r.code=v_code);
    v_attempt:=v_attempt+1; if v_attempt>10 then raise exception 'Could not allocate room code'; end if;
  end loop;

@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b1020">
+  <meta name="description" content="ROOM ZERO — Enter the unknown. Challenge the mind.">
+  <title>ROOM ZERO — Enter the Unknown</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./assets/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./css/styles.css">
+</head>
+<body>
+  <div class="ambient ambient-a"></div><div class="ambient ambient-b"></div>
+  <header class="topbar">
+    <a class="brand" href="#" data-action="home" aria-label="ROOM ZERO home">
+      <span class="brand-mark"><span></span><span></span><span></span></span>
+      <span>ROOM<span class="brand-zero"> ZERO</span><small>THE MIND ARENA</small></span>
+    </a>
+    <div class="top-actions">
+      <span class="connection-pill" id="connectionState"><i></i><span>Local preview</span></span>
+      <button class="icon-button" id="themeToggle" aria-label="Switch theme" title="Switch theme">☼</button>
+      <button class="avatar-button" id="profileButton" aria-label="Player profile">G</button>
+    </div>
+  </header>
+
+  <main id="app" class="app-shell">
+    <section class="hero panel">
+      <div class="hero-copy">
+        <p class="eyebrow"><span class="pulse-dot"></span> YOUR NEXT CHALLENGE AWAITS</p>
+        <h1>Enter the <span>unknown.</span><br>Challenge the mind.</h1>
+        <p class="hero-sub">A private arena for clever minds, unexpected twists and unforgettable games.</p>
+        <div class="hero-actions">
+          <button class="btn btn-primary" data-action="create-room">＋ Create a room</button>
+          <button class="btn btn-secondary" data-action="join-prompt">Join with code <span>↗</span></button>
+        </div>
+        <div class="hero-meta"><span>◈ Free to play</span><span>◎ Play together</span><span>⌁ No account required</span></div>
+      </div>
+      <div class="hero-art" aria-hidden="true">
+        <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
+        <div class="portal"><div class="portal-core"></div><span class="portal-word">ZERO</span></div>
+        <div class="floating-chip chip-top">MIND / ONLINE</div><div class="floating-chip chip-bottom">UNKNOWN SIGNAL DETECTED</div>
+      </div>
+    </section>
+
+    <section class="section-heading">
+      <div><p class="eyebrow">CHOOSE YOUR EXPERIENCE</p><h2>The game arena</h2></div>
+      <span class="muted small">More challenges arriving soon</span>
+    </section>
+    <section class="game-grid" id="gameGrid">
+      <article class="game-card featured"><div class="game-icon icon-brain">✧</div><span class="game-tag">AVAILABLE</span><h3>Brain Battle</h3><p>Test logic, memory, mathematics and general knowledge.</p><button data-action="game-info" data-game="brain">Explore game <b>→</b></button></article>
+      <article class="game-card"><div class="game-icon icon-impostor">◉</div><span class="game-tag">AVAILABLE</span><h3>The Impostor</h3><p>Read the room, share clues and uncover who doesn't belong.</p><button data-action="game-info" data-game="impostor">Explore game <b>→</b></button></article>
+      <article class="game-card"><div class="game-icon icon-mystery">⌕</div><span class="game-tag">AVAILABLE</span><h3>The Mystery</h3><p>Connect evidence, compare theories and solve a case together.</p><button data-action="game-info" data-game="mystery">Explore game <b>→</b></button></article>
+      <article class="game-card locked"><div class="game-icon">⟡</div><span class="game-tag soon">COMING LATER</span><h3>Mind Connection</h3><p>Think independently. Discover how closely your minds align.</p><button disabled>Coming soon</button></article>
+      <article class="game-card locked"><div class="game-icon">◷</div><span class="game-tag soon">COMING LATER</span><h3>The 60-Second Test</h3><p>Quick-fire observation, patterns and memory challenges.</p><button disabled>Coming soon</button></article>
+      <article class="game-card locked"><div class="game-icon">⬡</div><span class="game-tag soon">COMING LATER</span><h3>The Master Plan</h3><p>Make strategic decisions and guide your team to victory.</p><button disabled>Coming soon</button></article>
+    </section>
+    <footer class="footer"><span>ROOM ZERO © <span id="year"></span></span><span>ENTER THE UNKNOWN. CHALLENGE THE MIND.</span><button class="text-button" data-action="about">About this build</button></footer>
+  </main>
+
+  <div class="modal-backdrop hidden" id="modalBackdrop">
+    <section class="modal panel" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <button class="modal-close" data-action="close-modal" aria-label="Close">×</button>
+      <div id="modalContent"></div>
+    </section>
+  </div>
+  <div class="toast-region" id="toastRegion" aria-live="polite"></div>
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>

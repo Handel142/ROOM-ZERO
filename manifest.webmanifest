@@ -1,0 +1,19 @@
+{
+  "name": "ROOM ZERO \u2014 The Mind Arena",
+  "short_name": "ROOM ZERO",
+  "description": "Enter the unknown. Challenge the mind.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#080d19",
+  "theme_color": "#0b1020",
+  "icons": [
+    {
+      "src": "./assets/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 -- ROOM ZERO initial Supabase schema
 -- Enable Anonymous Sign-Ins in Supabase Authentication settings before using the app.
-create extension if not exists pgcrypto;
+-- Room codes below use built-in PostgreSQL functions; no pgcrypto extension is required.
 
 create table if not exists public.rooms (
   id uuid primary key default gen_random_uuid(),
@@ -74,16 +74,20 @@ create or replace function public.create_room(p_display_name text,p_capacity int
 returns table(room_id uuid, room_code text)
 language plpgsql security definer set search_path=public,auth
 as $$
-declare v_id uuid; v_code text; v_attempt integer:=0;
+declare v_id uuid; v_code text; v_attempt integer:=0; i integer;
 begin
  if auth.uid() is null then raise exception 'Authentication required'; end if;
  if length(trim(p_display_name)) not between 1 and 18 then raise exception 'Invalid display name'; end if;
  if p_capacity not between 2 and 50 then raise exception 'Capacity must be between 2 and 50'; end if;
  if p_game_mode not in ('brain','impostor','mystery') then raise exception 'Invalid game mode'; end if;
  loop
-   v_code:=upper(substr(encode(gen_random_bytes(8),'hex'),1,6));
+   -- md5(), random() and clock_timestamp() are built into PostgreSQL.
+   -- This avoids depending on pgcrypto.gen_random_bytes(), which may not
+   -- be visible in Supabase projects where extensions live in another schema.
+   v_code:=upper(substr(md5(random()::text || clock_timestamp()::text || pg_backend_pid()::text),1,6));
    exit when not exists(select 1 from public.rooms r where r.code=v_code);
-   v_attempt:=v_attempt+1; if v_attempt>10 then raise exception 'Could not allocate room code'; end if;
+   v_attempt:=v_attempt+1;
+   if v_attempt>20 then raise exception 'Could not allocate room code; please try again'; end if;
  end loop;
  insert into public.rooms(code,host_id,capacity,game_mode) values(v_code,auth.uid(),p_capacity,p_game_mode) returning id into v_id;
  insert into public.room_members(room_id,user_id,display_name,is_host) values(v_id,auth.uid(),trim(p_display_name),true);

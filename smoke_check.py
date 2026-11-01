@@ -32,3 +32,11 @@ required = ['index.html', 'css/styles.css', 'js/app.js', 'js/config.js', 'servic
 for item in required:
     assert (ROOT / item).is_file(), f'Missing required project file: {item}'
 print(f'PASS: {len(page.actions)} page actions have handlers; {len(page.assets)} linked assets exist; required project files are present.')
+
+# Regression checks for online room creation and minimum room size.
+schema = (ROOT / 'supabase/schema.sql').read_text(encoding='utf-8')
+assert 'get_byte(gen_random_bytes' not in schema, 'Room creation must not call pgcrypto.gen_random_bytes'
+assert 'md5(random()::text || clock_timestamp()::text' in schema, 'Expected built-in PostgreSQL room-code generation'
+assert 'p_capacity not between 2 and 50' in schema, 'Database must enforce a minimum capacity of 2'
+assert '<option value="2" selected>2 players (minimum)</option>' in app, 'Room capacity must default to 2 players'
+print('PASS: room-code SQL has no pgcrypto dependency; minimum room capacity is 2.')

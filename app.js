@@ -68,9 +68,9 @@
     return code;
   }
   function createRoomUI() {
-    showModal(`<p class="eyebrow">CREATE PRIVATE ARENA</p><h2 id="modalTitle">Set up your room</h2><p>Choose a display name, room size and the first challenge.</p>
+    showModal(`<p class="eyebrow">CREATE PRIVATE ARENA</p><h2 id="modalTitle">Set up your room</h2><p>Choose a display name, room size (minimum 2 players) and the first challenge.</p>
       <div class="field"><label for="hostName">YOUR DISPLAY NAME</label><input id="hostName" maxlength="18" autocomplete="nickname" placeholder="Choose a name" value="${escapeHTML(state.player)}"></div>
-      <div class="field"><label for="capacity">ROOM CAPACITY</label><select id="capacity"><option value="4">4 players</option><option value="8">8 players</option><option value="12">12 players</option><option value="20" selected>20 players</option><option value="30">30 players</option></select></div>
+      <div class="field"><label for="capacity">ROOM CAPACITY</label><select id="capacity"><option value="2" selected>2 players (minimum)</option><option value="4">4 players</option><option value="8">8 players</option><option value="12">12 players</option><option value="20">20 players</option><option value="30">30 players</option></select></div>
       <div class="field"><label for="firstGame">FIRST GAME</label><select id="firstGame"><option value="brain">Brain Battle</option><option value="impostor">The Impostor</option><option value="mystery">The Mystery</option></select></div>
       <button class="btn btn-primary" data-action="create-submit">Create private room</button>`);
   }
